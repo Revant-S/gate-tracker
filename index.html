@@ -1,0 +1,1344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GATE Tracker</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8b93a5; --accent: #7aa2ff;
+    --weekday: #171a21; --weekend: #211c35; --holiday: #2b1a1d;
+    --holiday-text: #ff8a8a; --weekend-text: #b9a6ff; --today: #7aa2ff;
+    --done: #4ade80; --danger: #f87171;
+    --c-quiz: #f59e0b; --c-subject: #ef4444; --c-topic: #ec4899; --c-lecture: #3b82f6;
+    --c-revision: #22c55e; --c-misc: #94a3b8; --c-practice: #a855f7;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --panel: #ffffff; --panel2: #f0f2f5; --border: #dde1e7;
+    --text: #1b1f27; --muted: #667085; --accent: #3563e9;
+    --weekday: #ffffff; --weekend: #f1edff; --holiday: #ffecec;
+    --holiday-text: #c62828; --weekend-text: #5b3fd1; --today: #3563e9;
+    --done: #16a34a; --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ghost { background: none; border-color: transparent; padding: 4px 6px; }
+  button.ghost:hover { border-color: var(--border); }
+  input, select, textarea { background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  /* Draw selects and checkboxes ourselves: WebKitGTK otherwise paints them with the
+     system GTK theme, which ignores our dark colours. */
+  :root { color-scheme: dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  select { -webkit-appearance: none; appearance: none; padding-right: 28px; background-color: var(--panel2);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238b93a5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; background-size: 11px 8px; cursor: pointer; }
+  option { background: var(--panel2); color: var(--text); }
+  input[type=checkbox] { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin: 0; padding: 0;
+    border: 2px solid var(--muted); border-radius: 5px; background: transparent; cursor: pointer;
+    position: relative; flex: none; vertical-align: middle; }
+  input[type=checkbox]:checked { background: var(--done); border-color: var(--done); }
+  input[type=checkbox]:checked::after { content: ""; position: absolute; left: 3.5px; top: 0.5px;
+    width: 4px; height: 8px; border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(.6); cursor: pointer; }
+  :root[data-theme="light"] input[type=date]::-webkit-calendar-picker-indicator { filter: none; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel);
+    border-bottom: 1px solid var(--border); padding: 12px 20px;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; }
+  .plan { color: var(--muted); font-size: 13px; cursor: pointer; }
+  .plan b { color: var(--text); }
+  .progress { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .bar { flex: 1; height: 10px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 99px; overflow: hidden; }
+  .bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--done));
+    width: 0; transition: width .3s; }
+  .progress .nums { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tools { display: flex; gap: 8px; align-items: center; }
+  .sync { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .sync.err { color: var(--danger); }
+
+  main { max-width: 1600px; margin: 0 auto; padding: 16px 20px 40px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+
+  aside.today { position: sticky; top: 84px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; display: flex; flex-direction: column; max-height: calc(100vh - 104px); }
+  aside.today .head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  aside.today .head h2 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; }
+  aside.today .head h2 span { font-size: 13px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  aside.today .head .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  aside.today .head .bar { height: 6px; margin-top: 8px; }
+  aside.today ul { list-style: none; margin: 0; padding: 6px 8px; overflow: auto; flex: 1; }
+  aside.today li { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 8px;
+    border-radius: 8px; align-items: start; }
+  aside.today li:hover { background: var(--panel2); }
+  .box { width: 20px; height: 20px; border: 2px solid var(--c); border-radius: 5px; background: none;
+    padding: 0; display: grid; place-items: center; cursor: pointer; margin-top: 1px; }
+  .box:hover { border-color: var(--c); background: var(--panel2); }
+  .box svg { width: 14px; height: 14px; visibility: hidden; }
+  li.done .box { background: var(--c); }
+  li.done .box svg { visibility: visible; }
+  aside.today .t { font-size: 13.5px; word-break: break-word; cursor: pointer; }
+  aside.today li.done .t { text-decoration: line-through; color: var(--muted); }
+  aside.today .m { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; font-size: 11.5px; align-items: center; }
+  aside.today .m a { color: var(--accent); text-decoration: none; }
+  aside.today .m a:hover { text-decoration: underline; }
+  aside.today .none { color: var(--muted); text-align: center; padding: 24px 12px; font-size: 13px; }
+  aside.today form { display: flex; gap: 6px; padding: 10px 12px 12px; border-top: 1px solid var(--border); }
+  aside.today form input { flex: 1; min-width: 0; }
+  aside.today form select { width: 92px; padding: 6px 4px; font-size: 13px; }
+  .calnav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .calnav h2 { margin: 0 8px; font-size: 20px; min-width: 190px; }
+  .legend { margin-left: auto; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; font-weight: 600; }
+  .dow.we { color: var(--weekend-text); }
+  .cell { min-height: 118px; background: var(--weekday); border: 1px solid var(--border);
+    border-radius: 10px; padding: 6px 7px; cursor: pointer; display: flex; flex-direction: column;
+    gap: 3px; overflow: hidden; }
+  .cell:hover { border-color: var(--accent); }
+  .cell.we { background: var(--weekend); }
+  .cell.hol { background: var(--holiday); }
+  .cell.out { opacity: .35; }
+  .cell.past .num { opacity: .7; }
+  .cell.today { outline: 2px solid var(--today); outline-offset: -1px; }
+  .cell.beyond { opacity: .5; }
+  .cell .top { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+  .cell .num { font-weight: 600; }
+  .cell.we .num { color: var(--weekend-text); }
+  .cell.hol .num { color: var(--holiday-text); }
+  .cell .cnt { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cell .cnt.all { color: var(--done); }
+  .cell .hname { font-size: 11px; color: var(--holiday-text); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .cell .endmark { font-size: 11px; color: var(--accent); font-weight: 600; }
+  .chip { font-size: 11.5px; padding: 1px 5px; border-left: 3px solid var(--c); border-radius: 3px;
+    background: var(--panel2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip.done { text-decoration: line-through; opacity: .5; }
+  .more { font-size: 11px; color: var(--muted); }
+
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 14px; padding: 0; width: min(640px, calc(100vw - 32px)); max-height: 88vh; }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  .dlg { display: flex; flex-direction: column; max-height: 88vh; }
+  .dlg-head { padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; }
+  .dlg-head h3 { margin: 0; font-size: 17px; flex: 1; }
+  .dlg-head .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--panel2); }
+  .dlg-head .tag.hol { color: var(--holiday-text); }
+  .dlg-head .tag.we { color: var(--weekend-text); }
+  .dlg-body { padding: 12px 18px; overflow: auto; }
+  .empty { color: var(--muted); padding: 12px 0; text-align: center; }
+  .task { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 10px 0;
+    border-bottom: 1px solid var(--border); align-items: start; }
+  .task input[type=checkbox] { margin-top: 2px; }
+  .task .title { font-weight: 500; word-break: break-word; }
+  .task.done .title { text-decoration: line-through; color: var(--muted); }
+  .task .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; align-items: center; }
+  .cat { padding: 1px 8px; border-radius: 99px; color: #fff; background: var(--c); font-size: 11.5px; }
+  .carry { color: var(--c-quiz); }
+  .task .links { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+  .task .links a { color: var(--accent); font-size: 13px; word-break: break-all; }
+  .task .notes { margin-top: 4px; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+  .task .acts { display: flex; gap: 2px; align-items: center; }
+  .task .acts input[type=date] { padding: 2px 6px; font-size: 12px; }
+
+  form.add { border-top: 1px solid var(--border); padding: 12px 18px 16px; display: grid; gap: 8px;
+    grid-template-columns: 1fr 170px; }
+  form.add .full { grid-column: 1 / -1; }
+  form.add textarea { resize: vertical; min-height: 54px; }
+  form.add .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .settings label { display: grid; gap: 4px; margin-bottom: 12px; }
+
+  @media (max-width: 760px) {
+    header { grid-template-columns: 1fr; gap: 10px; padding: 10px 16px; }
+    main { padding: 12px 16px 32px; }
+    aside.today { max-height: none; }
+    .grid { gap: 3px; }
+    .cell { min-height: 64px; padding: 4px; }
+    .chip { display: none; }
+    .cell .dots { display: flex; }
+    .legend { margin-left: 0; }
+    form.add { grid-template-columns: 1fr; }
+    aside.today { order: -1; }
+    .tools { flex-wrap: wrap; }
+    .shift { margin-left: 0; flex-wrap: wrap; }
+    .calnav h2 { min-width: 0; flex: 1; }
+  }
+  @media (max-width: 1100px) {
+    main { grid-template-columns: minmax(0, 1fr); }
+    aside.today { position: static; }
+  }
+  .sync { cursor: pointer; }
+  .sync:hover { color: var(--text); }
+  #syncBody p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  #syncBody p b { color: var(--text); }
+  #syncBody a { color: var(--accent); }
+  #syncBody ol { margin: 0 0 12px; padding-left: 20px; color: var(--muted); font-size: 13px; }
+  #syncBody .msg { color: var(--danger); min-height: 1em; }
+  #syncBody .msg.ok { color: var(--done); }
+  #syncBody .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  #qr { background: #fff; padding: 10px; border-radius: 10px; width: max-content; margin: 0 auto 10px; }
+  #qr img, #qr canvas { display: block; }
+
+  /* shift schedule */
+  .shift { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px 4px 4px 10px; }
+  .shift input { padding: 4px 8px; }
+  .shift input[type=number] { width: 64px; text-align: center; }
+  .calnav .legend { flex-basis: 100%; justify-content: flex-end; margin-left: 0; }
+  .copying .shift { display: none; }
+
+  /* copy mode + drag to copy */
+  .cell[draggable="true"] { cursor: grab; }
+  .cell.drop { outline: 2px dashed var(--done); outline-offset: -2px; }
+  .cell.dragsrc { opacity: .5; }
+  .copying .grid { user-select: none; }
+  .copying .cell { cursor: cell; }
+  .cell.src { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  .cell.nosel { opacity: .28; cursor: not-allowed; }
+  .cell.sel { box-shadow: inset 0 0 0 999px rgba(122, 162, 255, .22); border-color: var(--accent); position: relative; }
+  .cell.sel::after { content: "✓"; position: absolute; right: 6px; bottom: 4px; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; display: grid; place-items: center; }
+  .copybar { display: none; background: var(--panel); border: 1px solid var(--accent); border-radius: 12px;
+    padding: 10px 12px; margin-bottom: 12px; gap: 8px; flex-direction: column; }
+  .copying .copybar { display: flex; }
+  .copybar .row1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .copybar .row1 b { margin-right: 4px; }
+  .copybar .row1 .sp { flex: 1; }
+  .copybar .picks { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pick { font-size: 12px; padding: 2px 9px; border-radius: 99px; border: 1px solid var(--c);
+    background: none; opacity: .45; }
+  .pick.on { background: var(--c); color: #fff; opacity: 1; }
+  .copybar .hint { margin: 0; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(120px);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+    display: flex; gap: 14px; align-items: center; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    transition: transform .2s; z-index: 20; max-width: calc(100vw - 32px); }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast button { padding: 4px 10px; }
+
+  .dots { display: none; gap: 2px; flex-wrap: wrap; }
+  .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+  .dots i.done { opacity: .35; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>GATE Tracker</h1>
+    <div class="plan" id="plan" title="Click to change plan dates"></div>
+  </div>
+  <div class="progress">
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="nums" id="nums"></div>
+  </div>
+  <div class="tools">
+    <span class="sync" id="sync"></span>
+    <button id="btnExport" title="Download a JSON backup">Export</button>
+    <button id="btnImport" title="Load a JSON backup">Import</button>
+    <button id="btnSettings" title="Settings">⚙</button>
+    <button id="btnTheme" title="Toggle theme">◐</button>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </div>
+</header>
+
+<main>
+ <section>
+  <div class="calnav">
+    <button id="prev">‹</button>
+    <h2 id="monthLabel"></h2>
+    <button id="next">›</button>
+    <button id="todayBtn">Today</button>
+    <div class="shift" title="Move every unfinished task on or after this date">
+      <span>Shift from</span>
+      <input type="date" id="shiftFrom">
+      <span>by</span>
+      <input type="number" id="shiftDays" value="1" step="1" title="Days to shift (negative moves earlier)">
+      <span>day(s)</span>
+      <button id="shiftBtn" class="primary">⇢ Shift</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="copybar" id="copybar">
+    <div class="row1">
+      <b id="copyFrom"></b>
+      <button id="selWeek" title="The 7 days after the source day">Next 7 days</button>
+      <button id="selWeekly" title="Same weekday every week until the plan ends">Weekly till plan end</button>
+      <button id="selClear">Clear</button>
+      <span class="sp"></span>
+      <span id="selCount" class="hint"></span>
+      <button id="copyCancel">Cancel</button>
+      <button id="copyPaste" class="primary">Paste</button>
+    </div>
+    <div class="picks" id="copyPicks"></div>
+    <p class="hint">Click dates or drag across them to select. Tasks you untick above won't be copied. Press Esc to cancel.</p>
+  </div>
+  <div class="grid" id="grid"></div>
+ </section>
+  <aside class="today">
+    <div class="head">
+      <h2>Today <span id="todayCount"></span></h2>
+      <div class="sub" id="todayDate"></div>
+      <div class="bar"><div id="todayFill"></div></div>
+    </div>
+    <ul id="todayList"></ul>
+    <form id="quickAdd" autocomplete="off">
+      <input name="title" placeholder="Add a task for today…" required>
+      <select name="cat" id="quickCat"></select>
+      <button type="submit" class="primary" title="Add">+</button>
+    </form>
+  </aside>
+</main>
+
+<dialog id="dayDlg">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h3 id="dlgTitle"></h3>
+      <span class="tag" id="dlgTag"></span>
+      <button class="ghost" id="dlgCopy" title="Copy this day's tasks to other dates">⧉ Copy to…</button>
+      <button class="ghost" id="dlgHoliday" title="Mark or unmark this day as a holiday"></button>
+      <button class="ghost" id="dlgClose" title="Close">✕</button>
+    </div>
+    <div class="dlg-body" id="dlgList"></div>
+    <form class="add" id="addForm" autocomplete="off">
+      <input class="title-in" name="title" placeholder="What do you need to do?" required>
+      <select name="cat" id="catSelect"></select>
+      <textarea class="full" name="links" placeholder="Links, one per line (optionally:  Label | https://...)"></textarea>
+      <textarea class="full" name="notes" placeholder="Notes (optional)" style="min-height:38px"></textarea>
+      <div class="full row">
+        <span class="hint" id="formHint" style="margin-right:auto;align-self:center"></span>
+        <button type="button" id="cancelEdit" hidden>Cancel</button>
+        <button type="submit" class="primary" id="submitBtn">Add task</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<dialog id="syncDlg">
+  <div class="dlg">
+    <div class="dlg-head"><h3>Phone &amp; cloud sync</h3><button class="ghost" id="syncClose">✕</button></div>
+    <div class="dlg-body settings" id="syncBody"></div>
+  </div>
+</dialog>
+
+<dialog id="setDlg">
+  <div class="dlg">
+    <div class="dlg-head"><h3>Plan settings</h3><button class="ghost" id="setClose">✕</button></div>
+    <form class="dlg-body settings" id="setForm">
+      <label>Plan start <input type="date" name="startDate"></label>
+      <label>Plan ends (e.g. your GATE exam date) <input type="date" name="endDate" required></label>
+      <label>Label for the end date <input name="endLabel" placeholder="GATE 2027"></label>
+      <div class="row" style="display:flex;justify-content:flex-end;gap:8px">
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<script>
+const CATS = [
+  { id: "quiz",     name: "Quiz",              color: "var(--c-quiz)" },
+  { id: "subject",  name: "Subject Test",      color: "var(--c-subject)" },
+  { id: "topic",    name: "Topic Test",        color: "var(--c-topic)" },
+  { id: "lecture",  name: "Lecture",           color: "var(--c-lecture)" },
+  { id: "revision", name: "Revision",          color: "var(--c-revision)" },
+  { id: "misc",     name: "Misc",              color: "var(--c-misc)" },
+  { id: "practice", name: "Question Practice", color: "var(--c-practice)" },
+];
+const catOf = id => CATS.find(c => c.id === id) || CATS[5];
+
+// Indian national / gazetted holidays. Festival dates follow the lunar calendar
+// and can shift by a day; use "Mark holiday" in the day dialog to fix any.
+const BASE_HOLIDAYS = {
+  "2026-01-01": "New Year", "2026-01-14": "Makar Sankranti", "2026-01-26": "Republic Day",
+  "2026-02-15": "Maha Shivaratri", "2026-03-04": "Holi", "2026-03-21": "Id-ul-Fitr",
+  "2026-03-26": "Ram Navami", "2026-03-31": "Mahavir Jayanti", "2026-04-03": "Good Friday",
+  "2026-04-14": "Ambedkar Jayanti", "2026-05-01": "Buddha Purnima", "2026-05-27": "Bakrid",
+  "2026-06-26": "Muharram", "2026-08-15": "Independence Day", "2026-08-26": "Milad-un-Nabi",
+  "2026-08-28": "Raksha Bandhan", "2026-09-04": "Janmashtami", "2026-10-02": "Gandhi Jayanti",
+  "2026-10-20": "Dussehra", "2026-11-08": "Diwali", "2026-11-09": "Govardhan Puja",
+  "2026-11-11": "Bhai Dooj", "2026-11-24": "Guru Nanak Jayanti", "2026-12-25": "Christmas",
+  "2027-01-01": "New Year", "2027-01-14": "Makar Sankranti", "2027-01-26": "Republic Day",
+  "2027-03-06": "Maha Shivaratri", "2027-03-10": "Id-ul-Fitr", "2027-03-22": "Holi",
+  "2027-03-26": "Good Friday", "2027-04-14": "Ambedkar Jayanti", "2027-04-15": "Ram Navami",
+  "2027-04-18": "Mahavir Jayanti", "2027-05-17": "Bakrid", "2027-05-20": "Buddha Purnima",
+  "2027-06-15": "Muharram", "2027-08-15": "Independence Day", "2027-08-25": "Janmashtami",
+  "2027-10-02": "Gandhi Jayanti", "2027-10-09": "Dussehra", "2027-10-29": "Diwali",
+  "2027-11-14": "Guru Nanak Jayanti", "2027-12-25": "Christmas",
+};
+
+// ---------- date helpers (local time, YYYY-MM-DD strings) ----------
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const todayIso = () => iso(new Date());
+const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000);
+const fmtLong = s => parse(s).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const fmtShort = s => parse(s).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const isWeekend = s => [0, 6].includes(parse(s).getDay());
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// ---------- state ----------
+const LS_KEY = "gate-tracker-data";
+let data = null;
+let viewYear, viewMonth;
+let openDay = null, editingId = null;
+let serverOk = false, dirty = false, saveTimer = null;
+
+function blank() {
+  return {
+    version: 2, updatedAt: 0, metaUpdated: -1,   // -1: defaults, never edited
+    settings: { startDate: todayIso(), endDate: "2027-02-06", endLabel: "GATE 2027" },
+    holidays: {},   // overrides: date -> name, or null to remove a built-in holiday
+    tasks: [],
+    deleted: {},    // id -> time deleted, so other devices drop it too
+  };
+}
+
+function holidayName(s) {
+  if (data.holidays && s in data.holidays) return data.holidays[s];
+  return BASE_HOLIDAYS[s] || null;
+}
+
+// Incomplete tasks from earlier days move to today; origDate remembers where they started.
+function rollover() {
+  const t = todayIso();
+  let moved = 0;
+  for (const task of data.tasks) {
+    if (!task.done && task.date < t) {
+      task.carried = (task.carried || 0) + daysBetween(task.date, t);
+      task.date = t;
+      moved++;
+    }
+  }
+  return moved;
+}
+
+// ---------- persistence ----------
+// Every device keeps a full copy: browser storage everywhere, plus data/gate.json (in the Vault)
+// on the laptop. Devices meet in an encrypted Gist and merge task by task: the newer edit of a
+// task wins, and deletions leave tombstones so a stale device can't bring a task back.
+const ON_PAGES = location.hostname.endsWith("github.io");
+let snapshot = new Map(), metaSnap = "";   // state as last saved, to spot what changed
+
+function normalize(d) {
+  d ||= blank();
+  d.holidays ||= {};
+  d.settings ||= blank().settings;
+  d.tasks ||= [];
+  d.deleted ||= {};
+  if (d.metaUpdated === undefined) d.metaUpdated = 0;
+  return d;
+}
+const metaOf = d => JSON.stringify([d.settings, d.holidays]);
+const fp = d => JSON.stringify([[...d.tasks].sort((a, b) => a.id < b.id ? -1 : 1),
+  Object.entries(d.deleted).sort(), d.settings, d.holidays]);
+
+function takeSnapshot() {
+  snapshot = new Map(data.tasks.map(t => [t.id, JSON.stringify(t)]));
+  metaSnap = metaOf(data);
+}
+
+// Timestamp every task (and the settings) that changed since the last snapshot.
+function stamp() {
+  const now = Date.now(), seen = new Set();
+  for (const t of data.tasks) {
+    seen.add(t.id);
+    if (snapshot.get(t.id) !== JSON.stringify(t)) t.updated = now;
+  }
+  for (const id of snapshot.keys()) if (!seen.has(id)) data.deleted[id] = now;
+  if (metaOf(data) !== metaSnap) data.metaUpdated = now;
+  takeSnapshot();
+}
+
+function merge(a, b) {
+  a = normalize(a); b = normalize(b);
+  const deleted = { ...a.deleted };
+  for (const [id, ts] of Object.entries(b.deleted)) deleted[id] = Math.max(deleted[id] || 0, ts);
+  const cutoff = Date.now() - 90 * 86400000;
+  for (const [id, ts] of Object.entries(deleted)) if (ts < cutoff) delete deleted[id];
+  const byId = new Map();
+  for (const t of [...a.tasks, ...b.tasks]) {
+    const cur = byId.get(t.id);
+    if (!cur || (t.updated || 0) > (cur.updated || 0)) byId.set(t.id, t);
+  }
+  const meta = b.metaUpdated > a.metaUpdated ? b : a;
+  return structuredClone({
+    version: 2, updatedAt: Math.max(a.updatedAt || 0, b.updatedAt || 0),
+    settings: meta.settings, holidays: meta.holidays, metaUpdated: meta.metaUpdated,
+    tasks: [...byId.values()].filter(t => !(deleted[t.id] >= (t.updated || 0))),
+    deleted,
+  });
+}
+
+// Take in a merged copy from elsewhere; returns true if anything changed here.
+function adopt(merged) {
+  if (fp(merged) === fp(data)) return false;
+  data = merged;
+  takeSnapshot();
+  if (rollover()) save(); else { persistLocal(); dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(flush, 400); }
+  renderAll();
+  return true;
+}
+
+async function load() {
+  if (!ON_PAGES) {
+    try {
+      const r = await fetch("/api/data", { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      data = await r.json();
+      serverOk = true;
+    } catch { serverOk = false; }
+  }
+  if (!serverOk) try { data = JSON.parse(localStorage.getItem(LS_KEY)); } catch { data = null; }
+  data = normalize(data);
+  takeSnapshot();
+  if (rollover()) save();
+  setSync();
+}
+
+function persistLocal() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch {}
+}
+
+function save() {
+  stamp();
+  data.updatedAt = Date.now();
+  dirty = true;
+  persistLocal();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, 400);
+  scheduleSync(1500);
+  setSync("Saving…");
+}
+
+// One PUT at a time, so an older copy can never land after a newer one.
+let flushing = false, flushAgain = false;
+async function flush() {
+  if (!serverOk) { dirty = false; return setSync(); }
+  if (flushing) { flushAgain = true; return; }
+  flushing = true;
+  try {
+    const r = await fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data, null, 1) });
+    if (!r.ok) throw new Error(r.status);
+    dirty = flushAgain;
+    setSync();
+  } catch {
+    setSync("Save failed, retrying…", true);
+    saveTimer = setTimeout(flush, 5000);
+  } finally {
+    flushing = false;
+    if (flushAgain) { flushAgain = false; flush(); }
+  }
+}
+
+// Pick up changes another laptop made through the Vault copy of data/gate.json.
+async function poll() {
+  if (!serverOk || dirty) return;
+  try {
+    const r = await fetch("/api/data", { cache: "no-store" });
+    const remote = await r.json();
+    if (remote) adopt(merge(data, remote));
+  } catch {}
+}
+
+// ---------- encrypted Gist sync ----------
+const SYNC_KEY = "gate-sync", GIST_FILE = "gate-tracker.enc.json";
+const PAGES_URL = "https://revant-s.github.io/gate-tracker/";
+const KDF_ITER = 310000;
+let sync = null;   // { token, gistId, salt, key }  (key: raw AES key, base64)
+try { sync = JSON.parse(localStorage.getItem(SYNC_KEY)); } catch {}
+let aesKey = null, remoteDoc = null, remoteEtag = null;
+let syncing = false, syncTimer = null, syncErr = "", lastSynced = 0;
+
+function b64(buf) {
+  const u = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+async function deriveKey(pass, salt) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt: unb64(salt), iterations: KDF_ITER, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+}
+
+async function encryptDoc(doc, key = aesKey, salt = sync.salt) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(doc)));
+  return JSON.stringify({ v: 1, kdf: "PBKDF2-SHA256", iter: KDF_ITER, salt, iv: b64(iv), ct: b64(ct) });
+}
+
+async function decryptFile(text, key) {
+  const f = JSON.parse(text);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(f.iv) }, key, unb64(f.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+async function gh(path, opts = {}, token = sync?.token) {
+  const r = await fetch("https://api.github.com" + path, { ...opts, cache: "no-store",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", ...(opts.headers || {}) } });
+  if (r.status === 401) throw new Error("GitHub rejected the token (expired or revoked?)");
+  if (r.status === 403 || r.status === 404) throw new Error("the token can't access gists, or the gist is gone");
+  if (!r.ok && r.status !== 304) throw new Error(`GitHub error ${r.status}`);
+  return r;
+}
+
+async function gistText(g) {
+  const f = g.files[GIST_FILE];
+  if (!f) throw new Error("the gist has no tracker file");
+  return f.truncated ? (await fetch(f.raw_url, { cache: "no-store" })).text() : f.content;
+}
+
+async function syncRemote() {
+  if (!sync) return;
+  if (!navigator.onLine) return setSync();
+  if (syncing) return scheduleSync(2000);
+  syncing = true;
+  setSync();
+  try {
+    aesKey ||= await crypto.subtle.importKey("raw", unb64(sync.key), "AES-GCM", false, ["encrypt", "decrypt"]);
+    const r = await gh(`/gists/${sync.gistId}`, { headers: remoteEtag ? { "If-None-Match": remoteEtag } : {} });
+    if (r.status !== 304 || !remoteDoc) {
+      remoteDoc = normalize(await decryptFile(await gistText(await r.json()), aesKey));
+      remoteEtag = r.headers.get("ETag");
+    }
+    const merged = merge(data, remoteDoc);
+    adopt(merged);
+    if (fp(merged) !== fp(remoteDoc)) {
+      await gh(`/gists/${sync.gistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ files: { [GIST_FILE]: { content: await encryptDoc(merged) } } }) });
+      remoteDoc = structuredClone(merged);
+      remoteEtag = null;
+    }
+    syncErr = "";
+    lastSynced = Date.now();
+  } catch (e) {
+    syncErr = e.name === "OperationError" ? "can't decrypt (passphrase changed on another device?)" : e.message;
+  } finally {
+    syncing = false;
+    setSync();
+  }
+}
+
+function scheduleSync(ms = 1500) {
+  if (!sync) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncRemote, ms);
+}
+
+// First device creates the encrypted gist; later devices find it and check the passphrase.
+async function connectSync(token, pass, pass2) {
+  const list = await (await gh("/gists?per_page=100", {}, token)).json();
+  const found = list.find(g => g.files && g.files[GIST_FILE]);
+  let next;
+  if (found) {
+    const text = await gistText(await (await gh(`/gists/${found.id}`, {}, token)).json());
+    const salt = JSON.parse(text).salt;
+    const key = await deriveKey(pass, salt);
+    try { await decryptFile(text, key); } catch { throw new Error("Wrong passphrase for your existing sync data."); }
+    next = { token, gistId: found.id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
+  } else {
+    if (pass.length < 8) throw new Error("Use a passphrase of at least 8 characters.");
+    if (pass !== pass2) throw new Error("The two passphrases don't match.");
+    const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+    const key = await deriveKey(pass, salt);
+    const r = await gh("/gists", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "GATE tracker sync (encrypted)", public: false,
+        files: { [GIST_FILE]: { content: await encryptDoc(data, key, salt) } } }) }, token);
+    next = { token, gistId: (await r.json()).id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
+  }
+  sync = next;
+  aesKey = null; remoteDoc = null; remoteEtag = null;
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); } catch {}
+  await syncRemote();
+  return !!found;
+}
+
+function disconnectSync() {
+  sync = null; aesKey = null; remoteDoc = null; remoteEtag = null; syncErr = "";
+  try { localStorage.removeItem(SYNC_KEY); } catch {}
+  setSync();
+}
+
+function setSync(msg, err) {
+  const el = document.getElementById("sync");
+  const parts = [];
+  if (!ON_PAGES) parts.push(serverOk ? "✓ Vault" : "⚠ Vault server off");
+  if (!sync) parts.push("☁ Set up phone sync");
+  else if (syncErr) parts.push("⚠ Cloud: " + syncErr);
+  else if (syncing) parts.push("☁ Syncing…");
+  else if (!navigator.onLine) parts.push("☁ Offline, will sync later");
+  else if (lastSynced) parts.push("☁ Synced " + new Date(lastSynced).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
+  else parts.push("☁ Connecting…");
+  el.textContent = msg || parts.join(" · ");
+  el.title = "Phone & cloud sync settings";
+  el.classList.toggle("err", !!err || !!syncErr || (!ON_PAGES && !serverOk));
+}
+
+// ---------- header ----------
+function renderHeader() {
+  const total = data.tasks.length, done = data.tasks.filter(t => t.done).length;
+  const pct = total ? Math.round(done * 100 / total) : 0;
+  document.getElementById("barFill").style.width = pct + "%";
+  document.getElementById("nums").innerHTML = `<b>${done}</b> / ${total} tasks · <b>${pct}%</b>`;
+
+  const { endDate, endLabel, startDate } = data.settings;
+  const left = daysBetween(todayIso(), endDate);
+  let txt = `Plan ends <b>${fmtLong(endDate)}</b>${endLabel ? ` (${esc(endLabel)})` : ""} · `;
+  txt += left > 0 ? `<b>${left}</b> days left` : left === 0 ? "<b>today!</b>" : `ended ${-left} days ago`;
+  if (startDate && left > 0) {
+    const span = daysBetween(startDate, endDate);
+    if (span > 0) txt += ` · ${Math.min(100, Math.max(0, Math.round(daysBetween(startDate, todayIso()) * 100 / span)))}% of plan elapsed`;
+  }
+  document.getElementById("plan").innerHTML = txt;
+}
+
+// ---------- calendar ----------
+function renderCalendar() {
+  const first = new Date(viewYear, viewMonth, 1);
+  document.getElementById("monthLabel").textContent =
+    first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((d, i) => {
+    const el = document.createElement("div");
+    el.className = "dow" + (i >= 5 ? " we" : "");
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const byDate = {};
+  for (const t of data.tasks) (byDate[t.date] ||= []).push(t);
+
+  const start = new Date(first);
+  start.setDate(1 - ((first.getDay() + 6) % 7)); // back up to Monday
+  const t = todayIso(), end = data.settings.endDate;
+
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    if (i === 35 && d.getMonth() !== viewMonth) break;
+    const s = iso(d);
+    const hol = holidayName(s);
+    const tasks = sortTasks(byDate[s] || []);
+    const doneN = tasks.filter(x => x.done).length;
+
+    const cell = document.createElement("div");
+    cell.className = "cell" + (isWeekend(s) ? " we" : "") + (hol ? " hol" : "") +
+      (d.getMonth() !== viewMonth ? " out" : "") + (s === t ? " today" : "") +
+      (s < t ? " past" : "") + (s > end ? " beyond" : "");
+    cell.innerHTML = `
+      <div class="top"><span class="num">${d.getDate()}</span>
+        ${tasks.length ? `<span class="cnt ${doneN === tasks.length ? "all" : ""}">${doneN}/${tasks.length}</span>` : ""}</div>
+      ${hol ? `<div class="hname" title="${esc(hol)}">${esc(hol)}</div>` : ""}
+      ${s === end ? `<div class="endmark">🎯 ${esc(data.settings.endLabel || "Plan ends")}</div>` : ""}
+      ${tasks.slice(0, 4).map(x => `<div class="chip ${x.done ? "done" : ""}" style="--c:${catOf(x.cat).color}" title="${esc(catOf(x.cat).name)}: ${esc(x.title)}">${esc(x.title)}</div>`).join("")}
+      ${tasks.length > 4 ? `<div class="more">+${tasks.length - 4} more</div>` : ""}
+      <div class="dots">${tasks.map(x => `<i class="${x.done ? "done" : ""}" style="--c:${catOf(x.cat).color}"></i>`).join("")}</div>`;
+    wireCell(cell, s, tasks);
+    grid.appendChild(cell);
+  }
+}
+
+function sortTasks(list) {
+  return [...list].sort((a, b) => (a.done - b.done) || ((b.carried || 0) - (a.carried || 0)) || (a.created - b.created));
+}
+
+function renderLegend() {
+  document.getElementById("legend").innerHTML =
+    CATS.map(c => `<span><i class="sw" style="background:${c.color}"></i>${c.name}</span>`).join("") +
+    `<span><i class="sw" style="background:var(--weekend);border:1px solid var(--border)"></i>Weekend</span>` +
+    `<span><i class="sw" style="background:var(--holiday);border:1px solid var(--border)"></i>Holiday</span>`;
+}
+
+// ---------- day dialog ----------
+const dayDlg = document.getElementById("dayDlg");
+const form = document.getElementById("addForm");
+
+function openDayDialog(s) {
+  openDay = s;
+  resetForm();
+  renderDay();
+  if (!dayDlg.open) dayDlg.showModal();
+  form.title.focus();
+}
+
+function renderDay() {
+  const s = openDay, hol = holidayName(s);
+  document.getElementById("dlgTitle").textContent = fmtLong(s);
+  const tag = document.getElementById("dlgTag");
+  tag.className = "tag" + (hol ? " hol" : isWeekend(s) ? " we" : "");
+  tag.textContent = hol ? "🎉 " + hol : isWeekend(s) ? "Weekend" : "Weekday";
+  document.getElementById("dlgHoliday").textContent = hol ? "Unmark holiday" : "Mark holiday";
+  document.getElementById("dlgCopy").disabled = !data.tasks.some(t => t.date === s);
+
+  const tasks = sortTasks(data.tasks.filter(t => t.date === s));
+  const list = document.getElementById("dlgList");
+  if (!tasks.length) { list.innerHTML = `<div class="empty">Nothing planned for this day yet.</div>`; return; }
+  list.innerHTML = "";
+  for (const t of tasks) {
+    const c = catOf(t.cat);
+    const el = document.createElement("div");
+    el.className = "task" + (t.done ? " done" : "");
+    el.innerHTML = `
+      <input type="checkbox" ${t.done ? "checked" : ""} title="Mark done">
+      <div>
+        <div class="title">${esc(t.title)}</div>
+        <div class="meta">
+          <span class="cat" style="--c:${c.color}">${c.name}</span>
+          ${t.carried && t.origDate !== t.date ? `<span class="carry" title="Not finished on ${fmtShort(t.origDate)}, rolled forward">↻ carried from ${fmtShort(t.origDate)}</span>` : ""}
+          ${t.done && t.doneAt ? `<span class="hint">done ${fmtShort(t.doneAt)}</span>` : ""}
+        </div>
+        ${t.links?.length ? `<div class="links">${t.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.label || l.url)}</a>`).join("")}</div>` : ""}
+        ${t.notes ? `<div class="notes">${esc(t.notes)}</div>` : ""}
+      </div>
+      <div class="acts">
+        <input type="date" value="${t.date}" title="Move to another day">
+        <button class="ghost" data-a="edit" title="Edit">✎</button>
+        <button class="ghost" data-a="del" title="Delete">🗑</button>
+      </div>`;
+    el.querySelector("input[type=checkbox]").addEventListener("change", e => {
+      t.done = e.target.checked;
+      t.doneAt = t.done ? todayIso() : null;
+      // Unticking a past task sends it back through rollover to today.
+      if (!t.done) rollover();
+      commit();
+    });
+    el.querySelector("input[type=date]").addEventListener("change", e => {
+      if (!e.target.value) return;
+      t.date = e.target.value;
+      t.origDate = e.target.value;
+      t.carried = 0;
+      commit();
+    });
+    el.querySelector('[data-a="edit"]').addEventListener("click", () => startEdit(t));
+    el.querySelector('[data-a="del"]').addEventListener("click", () => {
+      if (confirm(`Delete "${t.title}"?`)) { data.tasks = data.tasks.filter(x => x !== t); commit(); }
+    });
+    list.appendChild(el);
+  }
+}
+
+function parseLinks(text) {
+  return text.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+    let label = "", url = l;
+    const bar = l.lastIndexOf("|");
+    if (bar > -1) { label = l.slice(0, bar).trim(); url = l.slice(bar + 1).trim(); }
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = "https://" + url;
+    return { label, url };
+  });
+}
+
+function startEdit(t) {
+  editingId = t.id;
+  form.title.value = t.title;
+  form.cat.value = t.cat;
+  form.links.value = (t.links || []).map(l => l.label ? `${l.label} | ${l.url}` : l.url).join("\n");
+  form.notes.value = t.notes || "";
+  document.getElementById("submitBtn").textContent = "Save changes";
+  document.getElementById("cancelEdit").hidden = false;
+  document.getElementById("formHint").textContent = "Editing task";
+  form.title.focus();
+}
+
+function resetForm() {
+  editingId = null;
+  const cat = form.cat.value;
+  form.reset();
+  if (cat) form.cat.value = cat; // keep last-used category
+  document.getElementById("submitBtn").textContent = "Add task";
+  document.getElementById("cancelEdit").hidden = true;
+  document.getElementById("formHint").textContent = "";
+}
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const title = form.title.value.trim();
+  if (!title) return;
+  const fields = { title, cat: form.cat.value, links: parseLinks(form.links.value), notes: form.notes.value.trim() };
+  if (editingId) {
+    Object.assign(data.tasks.find(t => t.id === editingId), fields);
+  } else {
+    data.tasks.push({ id: uid(), ...fields, date: openDay, origDate: openDay, done: false,
+      doneAt: null, carried: 0, created: Date.now() });
+    // Adding to a past day: it's not done, so it rolls to today like anything else.
+    if (openDay < todayIso()) rollover();
+  }
+  resetForm();
+  commit();
+});
+
+document.getElementById("cancelEdit").addEventListener("click", resetForm);
+document.getElementById("dlgClose").addEventListener("click", () => dayDlg.close());
+document.getElementById("dlgHoliday").addEventListener("click", () => {
+  const s = openDay;
+  if (holidayName(s)) {
+    if (BASE_HOLIDAYS[s]) data.holidays[s] = null; else delete data.holidays[s];
+  } else {
+    const name = prompt("Holiday name:", "Holiday");
+    if (name === null) return;
+    data.holidays[s] = name.trim() || "Holiday";
+  }
+  commit();
+});
+
+// ---------- settings ----------
+const setDlg = document.getElementById("setDlg"), setForm = document.getElementById("setForm");
+function openSettings() {
+  setForm.startDate.value = data.settings.startDate || "";
+  setForm.endDate.value = data.settings.endDate;
+  setForm.endLabel.value = data.settings.endLabel || "";
+  setDlg.showModal();
+}
+setForm.addEventListener("submit", e => {
+  e.preventDefault();
+  data.settings = { startDate: setForm.startDate.value, endDate: setForm.endDate.value, endLabel: setForm.endLabel.value.trim() };
+  setDlg.close();
+  commit();
+});
+document.getElementById("setClose").addEventListener("click", () => setDlg.close());
+document.getElementById("btnSettings").addEventListener("click", openSettings);
+document.getElementById("plan").addEventListener("click", openSettings);
+
+// ---------- import / export ----------
+document.getElementById("btnExport").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `gate-tracker-${todayIso()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById("btnImport").addEventListener("click", () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", async e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!Array.isArray(d.tasks)) throw new Error("no tasks array");
+    if (!confirm(`Replace current data with ${d.tasks.length} tasks from ${f.name}?`)) return;
+    const old = data.deleted;
+    data = normalize(d);
+    data.deleted = { ...old, ...data.deleted };
+    rollover();
+    commit();
+  } catch (err) { alert("That file isn't a tracker backup: " + err.message); }
+});
+
+// ---------- theme ----------
+function applyTheme(t) { document.documentElement.dataset.theme = t; }
+let theme = "dark";
+try { theme = localStorage.getItem("gate-theme") || "dark"; } catch {}
+applyTheme(theme);
+document.getElementById("btnTheme").addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme(theme);
+  try { localStorage.setItem("gate-theme", theme); } catch {}
+});
+
+// ---------- misc ----------
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+// ---------- today sidebar ----------
+const CHECK = `<svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>`;
+
+function renderToday() {
+  const t = todayIso();
+  const tasks = sortTasks(data.tasks.filter(x => x.date === t));
+  const doneN = tasks.filter(x => x.done).length;
+  const hol = holidayName(t);
+  document.getElementById("todayCount").textContent = tasks.length ? `${doneN}/${tasks.length} done` : "";
+  document.getElementById("todayDate").textContent = fmtLong(t) + (hol ? ` · 🎉 ${hol}` : "");
+  document.getElementById("todayFill").style.width = (tasks.length ? doneN * 100 / tasks.length : 0) + "%";
+
+  const ul = document.getElementById("todayList");
+  if (!tasks.length) { ul.innerHTML = `<li class="none" style="display:block">Nothing on the list for today.</li>`; return; }
+  ul.innerHTML = "";
+  for (const task of tasks) {
+    const c = catOf(task.cat);
+    const li = document.createElement("li");
+    li.className = task.done ? "done" : "";
+    li.style.setProperty("--c", c.color);
+    li.innerHTML = `
+      <button class="box" title="${task.done ? "Mark not done" : "Mark done"}">${CHECK}</button>
+      <div>
+        <div class="t" title="Open in day view">${esc(task.title)}</div>
+        <div class="m">
+          <span class="cat" style="--c:${c.color}">${c.name}</span>
+          ${task.carried && task.origDate !== task.date ? `<span class="carry">↻ ${fmtShort(task.origDate)}</span>` : ""}
+          ${(task.links || []).map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">🔗 ${esc(l.label || hostOf(l.url))}</a>`).join("")}
+        </div>
+      </div>`;
+    li.querySelector(".box").addEventListener("click", () => {
+      task.done = !task.done;
+      task.doneAt = task.done ? todayIso() : null;
+      commit();
+    });
+    li.querySelector(".t").addEventListener("click", () => openDayDialog(t));
+    ul.appendChild(li);
+  }
+}
+
+function hostOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
+}
+
+document.getElementById("quickCat").innerHTML = CATS.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+document.getElementById("quickAdd").addEventListener("submit", e => {
+  e.preventDefault();
+  const f = e.target, title = f.title.value.trim();
+  if (!title) return;
+  const t = todayIso();
+  data.tasks.push({ id: uid(), title, cat: f.cat.value, links: [], notes: "", date: t, origDate: t,
+    done: false, doneAt: null, carried: 0, created: Date.now() });
+  f.title.value = "";
+  commit();
+});
+
+// ---------- copying a day's schedule ----------
+// Copy mode: pick tasks from a source day, then click/drag-select target days.
+// Outside copy mode, dragging one day onto another copies all its tasks.
+let copy = null;          // { src, picked: Set(taskId), targets: Set(date) }
+let paint = null;         // "add" | "del" while the mouse is held down in copy mode
+let dragSrc = null;
+
+function wireCell(cell, s, tasks) {
+  const t = todayIso();
+  if (copy) {
+    const blocked = s < t || s === copy.src;
+    cell.classList.toggle("src", s === copy.src);
+    cell.classList.toggle("nosel", blocked && s !== copy.src);
+    cell.classList.toggle("sel", copy.targets.has(s));
+    if (blocked) return;
+    const apply = () => {
+      paint === "add" ? copy.targets.add(s) : copy.targets.delete(s);
+      cell.classList.toggle("sel", paint === "add");
+      renderCopyBar();
+    };
+    cell.addEventListener("mousedown", e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      paint = copy.targets.has(s) ? "del" : "add";
+      apply();
+    });
+    cell.addEventListener("mouseenter", () => { if (paint) apply(); });
+    return;
+  }
+
+  cell.addEventListener("click", () => openDayDialog(s));
+  if (tasks.length) {
+    cell.draggable = true;
+    cell.title = "Drag onto another day to copy these tasks";
+    cell.addEventListener("dragstart", e => {
+      dragSrc = s;
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", s);
+      cell.classList.add("dragsrc");
+    });
+    cell.addEventListener("dragend", () => {
+      dragSrc = null;
+      document.querySelectorAll(".cell.drop, .cell.dragsrc").forEach(c => c.classList.remove("drop", "dragsrc"));
+    });
+  }
+  if (s >= t) {
+    cell.addEventListener("dragover", e => {
+      if (!dragSrc || dragSrc === s) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      cell.classList.add("drop");
+    });
+    cell.addEventListener("dragleave", () => cell.classList.remove("drop"));
+    cell.addEventListener("drop", e => {
+      e.preventDefault();
+      const src = dragSrc || e.dataTransfer.getData("text/plain");
+      if (src && src !== s) copyTasks(data.tasks.filter(x => x.date === src), [s]);
+    });
+  }
+}
+document.addEventListener("mouseup", () => { paint = null; });
+
+function startCopy(src) {
+  const ids = data.tasks.filter(t => t.date === src).map(t => t.id);
+  if (!ids.length) return;
+  copy = { src, picked: new Set(ids), targets: new Set() };
+  dayDlg.close();
+  document.body.classList.add("copying");
+  renderCopyBar();
+  renderCalendar();
+}
+
+function endCopy() {
+  copy = null;
+  paint = null;
+  document.body.classList.remove("copying");
+  renderCalendar();
+}
+
+function renderCopyBar() {
+  if (!copy) return;
+  const tasks = sortTasks(data.tasks.filter(t => t.date === copy.src));
+  document.getElementById("copyFrom").textContent = `Copy from ${fmtShort(copy.src)} →`;
+  const picks = document.getElementById("copyPicks");
+  picks.innerHTML = tasks.map(t =>
+    `<button class="pick ${copy.picked.has(t.id) ? "on" : ""}" data-id="${t.id}" style="--c:${catOf(t.cat).color}">${esc(t.title)}</button>`).join("");
+  picks.querySelectorAll(".pick").forEach(b => b.addEventListener("click", () => {
+    copy.picked.has(b.dataset.id) ? copy.picked.delete(b.dataset.id) : copy.picked.add(b.dataset.id);
+    renderCopyBar();
+  }));
+  const n = copy.targets.size, k = copy.picked.size;
+  document.getElementById("selCount").textContent = `${k} task${k === 1 ? "" : "s"} → ${n} date${n === 1 ? "" : "s"}`;
+  document.getElementById("copyPaste").disabled = !n || !k;
+}
+
+function selectDates(dates) {
+  const t = todayIso();
+  for (const d of dates) if (d >= t && d !== copy.src) copy.targets.add(d);
+  renderCopyBar();
+  renderCalendar();
+}
+
+function addDays(s, n) { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); }
+
+document.getElementById("dlgCopy").addEventListener("click", () => startCopy(openDay));
+document.getElementById("copyCancel").addEventListener("click", endCopy);
+document.getElementById("selClear").addEventListener("click", () => { copy.targets.clear(); renderCopyBar(); renderCalendar(); });
+document.getElementById("selWeek").addEventListener("click", () =>
+  selectDates(Array.from({ length: 7 }, (_, i) => addDays(copy.src, i + 1))));
+document.getElementById("selWeekly").addEventListener("click", () => {
+  const out = [];
+  for (let d = addDays(copy.src, 7); d <= data.settings.endDate; d = addDays(d, 7)) out.push(d);
+  selectDates(out);
+});
+document.getElementById("copyPaste").addEventListener("click", () => {
+  const tasks = data.tasks.filter(t => t.date === copy.src && copy.picked.has(t.id));
+  const dates = [...copy.targets].sort();
+  endCopy();
+  copyTasks(tasks, dates);
+});
+
+// Copies arrive unticked; a task already on the target day (same title and category) is skipped.
+function copyTasks(tasks, dates) {
+  const created = [];
+  let skipped = 0;
+  for (const d of dates) {
+    for (const t of tasks) {
+      if (data.tasks.some(x => x.date === d && x.title === t.title && x.cat === t.cat)) { skipped++; continue; }
+      const id = uid();
+      data.tasks.push({ id, title: t.title, cat: t.cat, links: (t.links || []).map(l => ({ ...l })), notes: t.notes || "",
+        date: d, origDate: d, done: false, doneAt: null, carried: 0, created: Date.now() });
+      created.push(id);
+    }
+  }
+  if (created.length) commit();
+  const where = dates.length === 1 ? fmtShort(dates[0]) : `${dates.length} days`;
+  toast(created.length
+    ? `Copied ${created.length} task${created.length === 1 ? "" : "s"} to ${where}` + (skipped ? ` · ${skipped} already there` : "")
+    : "Nothing copied: those tasks are already there",
+    created.length ? () => { const ids = new Set(created); data.tasks = data.tasks.filter(x => !ids.has(x.id)); commit(); } : null);
+}
+
+// ---------- shifting the schedule ----------
+// Unfinished tasks on or after `from` move by n days; done tasks stay where they were done.
+// Nothing moves earlier than today, since a past date would just roll over again.
+function shiftSchedule(from, n) {
+  const t = todayIso();
+  const before = [];
+  for (const task of data.tasks) {
+    if (task.done || task.date < from) continue;
+    before.push({ task, date: task.date, origDate: task.origDate, carried: task.carried });
+    let nd = addDays(task.date, n);
+    if (nd < t) nd = t;
+    task.date = task.origDate = nd;
+    task.carried = 0;
+  }
+  if (!before.length) return toast(`No unfinished tasks on or after ${fmtShort(from)}`);
+  commit();
+  const dir = n > 0 ? "later" : "earlier", k = Math.abs(n);
+  toast(`Moved ${before.length} task${before.length === 1 ? "" : "s"} ${k} day${k === 1 ? "" : "s"} ${dir}`, () => {
+    for (const b of before) Object.assign(b.task, { date: b.date, origDate: b.origDate, carried: b.carried });
+    commit();
+  });
+}
+
+const shiftFrom = document.getElementById("shiftFrom"), shiftDays = document.getElementById("shiftDays");
+shiftFrom.value = todayIso();
+document.getElementById("shiftBtn").addEventListener("click", () => {
+  const n = parseInt(shiftDays.value, 10);
+  if (!shiftFrom.value) shiftFrom.value = todayIso();
+  if (!n) { shiftDays.focus(); return toast("Enter how many days to shift by"); }
+  shiftSchedule(shiftFrom.value, n);
+});
+shiftDays.addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("shiftBtn").click(); });
+
+let toastTimer = null;
+function toast(msg, undo) {
+  let el = document.getElementById("toast");
+  if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; document.body.appendChild(el); }
+  el.innerHTML = `<span>${esc(msg)}</span>${undo ? `<button>Undo</button>` : ""}`;
+  if (undo) el.querySelector("button").addEventListener("click", () => { undo(); el.classList.remove("show"); });
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 8000);
+}
+
+function commit() { save(); renderAll(); }
+function renderAll() {
+  renderHeader();
+  renderCalendar();
+  renderToday();
+  if (dayDlg.open) renderDay();
+}
+
+document.getElementById("catSelect").innerHTML = CATS.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+document.getElementById("prev").addEventListener("click", () => { if (--viewMonth < 0) { viewMonth = 11; viewYear--; } renderCalendar(); });
+document.getElementById("next").addEventListener("click", () => { if (++viewMonth > 11) { viewMonth = 0; viewYear++; } renderCalendar(); });
+document.getElementById("todayBtn").addEventListener("click", () => { const d = new Date(); viewYear = d.getFullYear(); viewMonth = d.getMonth(); renderCalendar(); });
+document.addEventListener("keydown", e => {
+  if (copy && e.key === "Escape") return endCopy();
+  if (dayDlg.open || setDlg.open || e.target.matches("input, textarea, select")) return;
+  if (e.key === "ArrowLeft") document.getElementById("prev").click();
+  if (e.key === "ArrowRight") document.getElementById("next").click();
+  if (e.key === "t") document.getElementById("todayBtn").click();
+});
+
+// ---------- sync dialog ----------
+const syncDlg = document.getElementById("syncDlg"), syncBody = document.getElementById("syncBody");
+let setupToken = "";
+
+function openSync() { renderSync(); syncDlg.showModal(); }
+
+function renderSync(msg = "", ok = false) {
+  if (!sync) {
+    syncBody.innerHTML = `
+      <p>Keeps this device and your phone in sync through a <b>secret GitHub Gist</b>. Your plan is encrypted
+        with your passphrase before it leaves this device, so GitHub only ever sees scrambled text.</p>
+      <ol>
+        <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Create a fine-grained token</a>:
+          any name, expiry up to a year, <b>Account permissions → Gists → Read and write</b>, nothing else.</li>
+        <li>Paste it below with a passphrase. On your first device this creates the sync gist; on the others,
+          use the same passphrase.</li>
+      </ol>
+      <form id="syncForm" autocomplete="off">
+        <label>GitHub token <input name="token" type="password" required value="${esc(setupToken)}" placeholder="github_pat_…"></label>
+        <label>Passphrase <input name="pass" type="password" required autocomplete="new-password"></label>
+        <label>Passphrase again <span class="hint">(only needed the first time)</span><input name="pass2" type="password" autocomplete="new-password"></label>
+        <p class="msg ${ok ? "ok" : ""}">${esc(msg)}</p>
+        <div class="btns"><button type="submit" class="primary">Connect</button></div>
+      </form>`;
+    const f = syncBody.querySelector("#syncForm");
+    (setupToken ? f.pass : f.token).focus();
+    f.addEventListener("submit", async e => {
+      e.preventDefault();
+      const btn = f.querySelector("button");
+      btn.disabled = true; btn.textContent = "Connecting…";
+      try {
+        const existed = await connectSync(f.token.value.trim(), f.pass.value, f.pass2.value);
+        setupToken = "";
+        renderSync(existed ? "Connected. Your plan from the other devices is merged in." : "Sync set up. Now connect your phone.", true);
+      } catch (err) {
+        renderSync(err.message);
+      }
+    });
+    return;
+  }
+  syncBody.innerHTML = `
+    <p>Connected to your encrypted sync gist. ${syncErr ? `<b style="color:var(--danger)">Problem: ${esc(syncErr)}</b>` :
+      lastSynced ? `Last synced at <b>${new Date(lastSynced).toLocaleTimeString()}</b>.` : ""}</p>
+    <p><b>Add your phone:</b> scan this on the phone (or open the link there), then enter the same passphrase.
+      Afterwards use “Add to Home screen” in the phone's browser menu.</p>
+    <div id="qr"></div>
+    <p style="text-align:center"><button id="copyLink">Copy phone link</button></p>
+    <p class="hint">The link carries your token, so don't share it. Without the passphrase it can't read your plan.</p>
+    <p class="msg ${ok ? "ok" : ""}">${esc(msg)}</p>
+    <div class="btns">
+      <button id="syncDisconnect">Disconnect this device</button>
+      <button id="syncNow" class="primary">Sync now</button>
+    </div>`;
+  const link = PAGES_URL + "#setup=" + encodeURIComponent(sync.token);
+  showQR(document.getElementById("qr"), link);
+  syncBody.querySelector("#copyLink").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(link); renderSync("Link copied.", true); }
+    catch { prompt("Copy this link:", link); }
+  });
+  syncBody.querySelector("#syncNow").addEventListener("click", async () => {
+    await syncRemote();
+    renderSync(syncErr ? "" : "Synced.", true);
+  });
+  syncBody.querySelector("#syncDisconnect").addEventListener("click", () => {
+    if (!confirm("Stop syncing on this device? Your plan stays here and in the gist.")) return;
+    disconnectSync();
+    renderSync();
+  });
+}
+
+function showQR(el, text) {
+  const draw = () => new QRCode(el, { text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+  if (window.QRCode) return draw();
+  const sc = document.createElement("script");
+  sc.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+  sc.onload = draw;
+  sc.onerror = () => { el.style.display = "none"; };
+  document.head.appendChild(sc);
+}
+
+document.getElementById("sync").addEventListener("click", openSync);
+document.getElementById("syncClose").addEventListener("click", () => syncDlg.close());
+
+// Day change while the tab is open: roll leftovers forward.
+let lastDay = todayIso();
+setInterval(() => {
+  if (todayIso() !== lastDay) {
+    if (shiftFrom.value === lastDay) shiftFrom.value = todayIso();
+    lastDay = todayIso(); if (rollover()) commit(); else renderAll(); }
+}, 60000);
+setInterval(poll, 20000);
+setInterval(() => syncRemote(), 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRemote(); });
+window.addEventListener("online", () => syncRemote());
+window.addEventListener("offline", () => setSync());
+window.addEventListener("beforeunload", e => { if (dirty && serverOk) { flush(); e.preventDefault(); } });
+
+(async () => {
+  const d = new Date();
+  viewYear = d.getFullYear(); viewMonth = d.getMonth();
+  renderLegend();
+  await load();
+  renderAll();
+  // Phone setup link: #setup=<token> prefills the sync form, then leaves the address bar.
+  if (location.hash.startsWith("#setup=")) {
+    setupToken = decodeURIComponent(location.hash.slice(7));
+    history.replaceState(null, "", location.pathname);
+    if (!sync) openSync();
+  }
+  syncRemote();
+  if (ON_PAGES && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
