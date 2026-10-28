@@ -78,6 +78,19 @@
   aside.today { position: sticky; top: 84px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 14px; display: flex; flex-direction: column; max-height: calc(100vh - 104px); }
   aside.today .head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  aside.today .tabs { display: flex; gap: 4px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); }
+  aside.today .tabs button { flex: 1; background: none; border: 0; border-bottom: 2px solid transparent;
+    border-radius: 0; padding: 9px 6px; color: var(--muted); font-weight: 600; }
+  aside.today .tabs button:hover { color: var(--text); }
+  aside.today .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  aside.today .tabs span { font-weight: 500; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  aside.today .pane { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  aside.today .pane[hidden] { display: none; }
+  #weakList li { grid-template-columns: auto 1fr auto; }
+  #weakList .del { opacity: 0; padding: 0 6px; font-size: 15px; color: var(--muted); background: none; border: 0; }
+  #weakList li:hover .del { opacity: 1; }
+  #weakList .del:hover { color: var(--danger); }
+  @media (hover: none) { #weakList .del { opacity: .6; } }
   aside.today .head h2 { margin: 0; font-size: 16px; display: flex; justify-content: space-between; align-items: baseline; }
   aside.today .head h2 span { font-size: 13px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
   aside.today .head .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
@@ -296,17 +309,35 @@
   <div class="grid" id="grid"></div>
  </section>
   <aside class="today">
-    <div class="head">
-      <h2>Today <span id="todayCount"></span></h2>
-      <div class="sub" id="todayDate"></div>
-      <div class="bar"><div id="todayFill"></div></div>
+    <div class="tabs">
+      <button data-tab="today">Today <span id="tabTodayN"></span></button>
+      <button data-tab="weak">Weak topics <span id="tabWeakN"></span></button>
     </div>
-    <ul id="todayList"></ul>
-    <form id="quickAdd" autocomplete="off">
-      <input name="title" placeholder="Add a task for today…" required>
-      <select name="cat" id="quickCat"></select>
-      <button type="submit" class="primary" title="Add">+</button>
-    </form>
+    <div class="pane" id="pane-today">
+      <div class="head">
+        <h2>Today <span id="todayCount"></span></h2>
+        <div class="sub" id="todayDate"></div>
+        <div class="bar"><div id="todayFill"></div></div>
+      </div>
+      <ul id="todayList"></ul>
+      <form id="quickAdd" autocomplete="off">
+        <input name="title" placeholder="Add a task for today…" required>
+        <select name="cat" id="quickCat"></select>
+        <button type="submit" class="primary" title="Add">+</button>
+      </form>
+    </div>
+    <div class="pane" id="pane-weak" hidden>
+      <div class="head">
+        <h2>Weak topics <span id="weakCount"></span></h2>
+        <div class="sub">Tick a topic once it's strong. Double-click to rename.</div>
+        <div class="bar"><div id="weakFill"></div></div>
+      </div>
+      <ul id="weakList"></ul>
+      <form id="weakAdd" autocomplete="off">
+        <input name="title" placeholder="Add a weak topic, e.g. CN: sliding window" required>
+        <button type="submit" class="primary" title="Add">+</button>
+      </form>
+    </div>
   </aside>
 </main>
 
@@ -411,6 +442,7 @@ function blank() {
     settings: { startDate: todayIso(), endDate: "2027-02-06", endLabel: "GATE 2027" },
     holidays: {},   // overrides: date -> name, or null to remove a built-in holiday
     tasks: [],
+    weak: [],       // weak topics: { id, title, done, created, updated }
     deleted: {},    // id -> time deleted, so other devices drop it too
   };
 }
@@ -436,8 +468,8 @@ function rollover() {
 
 // ---------- persistence ----------
 // Every device keeps a full copy: browser storage everywhere, plus data/gate.json (in the Vault)
-// on the laptop. Devices meet in an encrypted Gist and merge task by task: the newer edit of a
-// task wins, and deletions leave tombstones so a stale device can't bring a task back.
+// on the laptop. Devices meet in an encrypted Gist and merge item by item (tasks and weak topics):
+// the newer edit of an item wins, and deletions leave tombstones so a stale device can't bring it back.
 const ON_PAGES = location.hostname.endsWith("github.io");
 let snapshot = new Map(), metaSnap = "";   // state as last saved, to spot what changed
 
@@ -446,23 +478,26 @@ function normalize(d) {
   d.holidays ||= {};
   d.settings ||= blank().settings;
   d.tasks ||= [];
+  d.weak ||= [];
   d.deleted ||= {};
   if (d.metaUpdated === undefined) d.metaUpdated = 0;
   return d;
 }
 const metaOf = d => JSON.stringify([d.settings, d.holidays]);
-const fp = d => JSON.stringify([[...d.tasks].sort((a, b) => a.id < b.id ? -1 : 1),
+const byIdOrder = list => [...list].sort((a, b) => a.id < b.id ? -1 : 1);
+const fp = d => JSON.stringify([byIdOrder(d.tasks), byIdOrder(d.weak),
   Object.entries(d.deleted).sort(), d.settings, d.holidays]);
+const items = d => [...d.tasks, ...d.weak];
 
 function takeSnapshot() {
-  snapshot = new Map(data.tasks.map(t => [t.id, JSON.stringify(t)]));
+  snapshot = new Map(items(data).map(t => [t.id, JSON.stringify(t)]));
   metaSnap = metaOf(data);
 }
 
-// Timestamp every task (and the settings) that changed since the last snapshot.
+// Timestamp every task, weak topic and the settings that changed since the last snapshot.
 function stamp() {
   const now = Date.now(), seen = new Set();
-  for (const t of data.tasks) {
+  for (const t of items(data)) {
     seen.add(t.id);
     if (snapshot.get(t.id) !== JSON.stringify(t)) t.updated = now;
   }
@@ -477,16 +512,20 @@ function merge(a, b) {
   for (const [id, ts] of Object.entries(b.deleted)) deleted[id] = Math.max(deleted[id] || 0, ts);
   const cutoff = Date.now() - 90 * 86400000;
   for (const [id, ts] of Object.entries(deleted)) if (ts < cutoff) delete deleted[id];
-  const byId = new Map();
-  for (const t of [...a.tasks, ...b.tasks]) {
-    const cur = byId.get(t.id);
-    if (!cur || (t.updated || 0) > (cur.updated || 0)) byId.set(t.id, t);
-  }
+  const pick = (x, y) => {
+    const byId = new Map();
+    for (const t of [...x, ...y]) {
+      const cur = byId.get(t.id);
+      if (!cur || (t.updated || 0) > (cur.updated || 0)) byId.set(t.id, t);
+    }
+    return [...byId.values()].filter(t => !(deleted[t.id] >= (t.updated || 0)));
+  };
   const meta = b.metaUpdated > a.metaUpdated ? b : a;
   return structuredClone({
     version: 2, updatedAt: Math.max(a.updatedAt || 0, b.updatedAt || 0),
     settings: meta.settings, holidays: meta.holidays, metaUpdated: meta.metaUpdated,
-    tasks: [...byId.values()].filter(t => !(deleted[t.id] >= (t.updated || 0))),
+    tasks: pick(a.tasks, b.tasks),
+    weak: pick(a.weak, b.weak),
     deleted,
   });
 }
@@ -974,6 +1013,7 @@ function renderToday() {
   const doneN = tasks.filter(x => x.done).length;
   const hol = holidayName(t);
   document.getElementById("todayCount").textContent = tasks.length ? `${doneN}/${tasks.length} done` : "";
+  document.getElementById("tabTodayN").textContent = tasks.length ? `(${doneN}/${tasks.length})` : "";
   document.getElementById("todayDate").textContent = fmtLong(t) + (hol ? ` · 🎉 ${hol}` : "");
   document.getElementById("todayFill").style.width = (tasks.length ? doneN * 100 / tasks.length : 0) + "%";
 
@@ -1004,6 +1044,57 @@ function renderToday() {
     ul.appendChild(li);
   }
 }
+
+// ---------- weak topics ----------
+function renderWeak() {
+  const list = [...data.weak].sort((a, b) => (a.done - b.done) || (a.created - b.created));
+  const open = list.filter(w => !w.done).length, fixed = list.length - open;
+  document.getElementById("weakCount").textContent = list.length ? `${fixed}/${list.length} fixed` : "";
+  document.getElementById("weakFill").style.width = (list.length ? fixed * 100 / list.length : 0) + "%";
+  document.getElementById("tabWeakN").textContent = open ? `(${open})` : "";
+
+  const ul = document.getElementById("weakList");
+  if (!list.length) { ul.innerHTML = `<li class="none" style="display:block">No weak topics yet. Add the ones that keep tripping you up.</li>`; return; }
+  ul.innerHTML = "";
+  for (const w of list) {
+    const li = document.createElement("li");
+    li.className = w.done ? "done" : "";
+    li.style.setProperty("--c", "var(--c-subject)");
+    li.innerHTML = `
+      <button class="box" title="${w.done ? "Mark as still weak" : "Mark as fixed"}">${CHECK}</button>
+      <div class="t" title="Double-click to rename">${esc(w.title)}</div>
+      <button class="del" title="Remove">✕</button>`;
+    li.querySelector(".box").addEventListener("click", () => { w.done = !w.done; commit(); });
+    li.querySelector(".t").addEventListener("dblclick", () => {
+      const title = prompt("Rename weak topic:", w.title);
+      if (title && title.trim() && title.trim() !== w.title) { w.title = title.trim(); commit(); }
+    });
+    li.querySelector(".del").addEventListener("click", () => {
+      if (confirm(`Remove "${w.title}" from weak topics?`)) { data.weak = data.weak.filter(x => x !== w); commit(); }
+    });
+    ul.appendChild(li);
+  }
+}
+
+document.getElementById("weakAdd").addEventListener("submit", e => {
+  e.preventDefault();
+  const title = e.target.title.value.trim();
+  if (!title) return;
+  data.weak.push({ id: uid(), title, done: false, created: Date.now() });
+  e.target.title.value = "";
+  commit();
+});
+
+function showTab(tab) {
+  document.querySelectorAll("aside.today .tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.getElementById("pane-today").hidden = tab !== "today";
+  document.getElementById("pane-weak").hidden = tab !== "weak";
+  try { localStorage.setItem("gate-tab", tab); } catch {}
+}
+document.querySelectorAll("aside.today .tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+let savedTab = "today";
+try { savedTab = localStorage.getItem("gate-tab") || "today"; } catch {}
+showTab(savedTab);
 
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
@@ -1212,6 +1303,7 @@ function renderAll() {
   renderHeader();
   renderCalendar();
   renderToday();
+  renderWeak();
   if (dayDlg.open) renderDay();
 }
 
