@@ -286,9 +286,10 @@
       <span>Shift from</span>
       <input type="date" id="shiftFrom">
       <span>by</span>
-      <input type="number" id="shiftDays" value="1" step="1" title="Days to shift (negative moves earlier)">
+      <input type="number" id="shiftDays" value="1" min="1" step="1" title="Days to shift">
       <span>day(s)</span>
-      <button id="shiftBtn" class="primary">⇢ Shift</button>
+      <button id="shiftLeft" title="Move tasks earlier (never before today)">⇠ Earlier</button>
+      <button id="shiftBtn" class="primary" title="Move tasks later">Later ⇢</button>
     </div>
     <div class="legend" id="legend"></div>
   </div>
@@ -1297,13 +1298,18 @@ function shiftSchedule(from, n) {
   const before = [];
   for (const task of data.tasks) {
     if (task.done || task.date < from) continue;
-    before.push({ task, date: task.date, origDate: task.origDate, carried: task.carried });
     let nd = addDays(task.date, n);
     if (nd < t) nd = t;
+    if (nd === task.date) continue;
+    before.push({ task, date: task.date, origDate: task.origDate, carried: task.carried });
     task.date = task.origDate = nd;
     task.carried = 0;
   }
-  if (!before.length) return toast(`No unfinished tasks on or after ${fmtShort(from)}`);
+  if (!before.length) {
+    const anyOpen = data.tasks.some(x => !x.done && x.date >= from);
+    return toast(!anyOpen ? `No unfinished tasks on or after ${fmtShort(from)}`
+      : "Nothing moved: tasks can't go earlier than today");
+  }
   commit();
   const dir = n > 0 ? "later" : "earlier", k = Math.abs(n);
   toast(`Moved ${before.length} task${before.length === 1 ? "" : "s"} ${k} day${k === 1 ? "" : "s"} ${dir}`, () => {
@@ -1314,12 +1320,14 @@ function shiftSchedule(from, n) {
 
 const shiftFrom = document.getElementById("shiftFrom"), shiftDays = document.getElementById("shiftDays");
 shiftFrom.value = todayIso();
-document.getElementById("shiftBtn").addEventListener("click", () => {
-  const n = parseInt(shiftDays.value, 10);
+function shiftBy(sign) {
+  const n = Math.abs(parseInt(shiftDays.value, 10));
   if (!shiftFrom.value) shiftFrom.value = todayIso();
   if (!n) { shiftDays.focus(); return toast("Enter how many days to shift by"); }
-  shiftSchedule(shiftFrom.value, n);
-});
+  shiftSchedule(shiftFrom.value, sign * n);
+}
+document.getElementById("shiftBtn").addEventListener("click", () => shiftBy(1));
+document.getElementById("shiftLeft").addEventListener("click", () => shiftBy(-1));
 shiftDays.addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("shiftBtn").click(); });
 
 let toastTimer = null;
