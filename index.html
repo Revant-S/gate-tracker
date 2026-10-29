@@ -422,7 +422,14 @@ const BASE_HOLIDAYS = {
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
-const todayIso = () => iso(new Date());
+// Device clocks can be wrong. clockOffset corrects this one to GitHub's time (measured on each
+// sync push), and tick() never hands out a stamp below one already seen, so anything done after
+// seeing another device's change always wins the merge, whatever the clocks say.
+let clockOffset = 0, clockMax = 0;
+try { clockOffset = +localStorage.getItem("gate-clock-offset") || 0; } catch {}
+const nowMs = () => Date.now() + clockOffset;
+function tick() { clockMax = Math.max(nowMs(), clockMax + 1); return clockMax; }
+const todayIso = () => iso(new Date(nowMs()));
 const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000);
 const fmtLong = s => parse(s).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const fmtShort = s => parse(s).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -492,11 +499,14 @@ const items = d => [...d.tasks, ...d.weak];
 function takeSnapshot() {
   snapshot = new Map(items(data).map(t => [t.id, JSON.stringify(t)]));
   metaSnap = metaOf(data);
+  for (const t of items(data)) clockMax = Math.max(clockMax, t.updated || 0);
+  for (const ts of Object.values(data.deleted)) clockMax = Math.max(clockMax, ts);
+  clockMax = Math.max(clockMax, data.metaUpdated || 0);
 }
 
 // Timestamp every task, weak topic and the settings that changed since the last snapshot.
 function stamp() {
-  const now = Date.now(), seen = new Set();
+  const now = tick(), seen = new Set();
   for (const t of items(data)) {
     seen.add(t.id);
     if (snapshot.get(t.id) !== JSON.stringify(t)) t.updated = now;
@@ -665,22 +675,44 @@ async function syncRemote() {
       remoteDoc = normalize(await decryptFile(await gistText(await r.json()), aesKey));
       remoteEtag = r.headers.get("ETag");
     }
+    for (const t of items(remoteDoc)) clockMax = Math.max(clockMax, t.updated || 0);
     const merged = merge(data, remoteDoc);
     adopt(merged);
     if (fp(merged) !== fp(remoteDoc)) {
-      await gh(`/gists/${sync.gistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      const p = await gh(`/gists/${sync.gistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: { [GIST_FILE]: { content: await encryptDoc(merged) } } }) });
+      checkClock(await p.json());
       remoteDoc = structuredClone(merged);
       remoteEtag = null;
     }
     syncErr = "";
-    lastSynced = Date.now();
+    lastSynced = nowMs();
   } catch (e) {
     syncErr = e.name === "OperationError" ? "can't decrypt (passphrase changed on another device?)" : e.message;
   } finally {
     syncing = false;
     setSync();
   }
+}
+
+// A gist we just wrote carries GitHub's clock in updated_at (to the second). Trust this
+// device's own clock unless it's more than two minutes off.
+function checkClock(g) {
+  const server = Date.parse(g?.updated_at);
+  if (!server) return;
+  const off = server - Date.now();
+  const next = Math.abs(off) > 120000 ? Math.round(off / 1000) * 1000 : 0;
+  if (next === clockOffset) return;
+  clockOffset = next;
+  try { localStorage.setItem("gate-clock-offset", String(clockOffset)); } catch {}
+  renderAll();
+}
+
+function clockNote() {
+  if (!clockOffset) return "";
+  const h = Math.abs(clockOffset) / 3600000;
+  const amount = h >= 1 ? `${h.toFixed(1).replace(/\.0$/, "")} h` : `${Math.round(h * 60)} min`;
+  return `⏰ device clock is ${amount} ${clockOffset < 0 ? "fast" : "slow"} (corrected)`;
 }
 
 function scheduleSync(ms = 1500) {
@@ -708,7 +740,9 @@ async function connectSync(token, pass, pass2) {
     const r = await gh("/gists", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ description: "GATE tracker sync (encrypted)", public: false,
         files: { [GIST_FILE]: { content: await encryptDoc(data, key, salt) } } }) }, token);
-    next = { token, gistId: (await r.json()).id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
+    const g = await r.json();
+    checkClock(g);
+    next = { token, gistId: g.id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
   }
   sync = next;
   aesKey = null; remoteDoc = null; remoteEtag = null;
@@ -733,6 +767,7 @@ function setSync(msg, err) {
   else if (!navigator.onLine) parts.push("☁ Offline, will sync later");
   else if (lastSynced) parts.push("☁ Synced " + new Date(lastSynced).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }));
   else parts.push("☁ Connecting…");
+  if (clockNote()) parts.push(clockNote());
   el.textContent = msg || parts.join(" · ");
   el.title = "Phone & cloud sync settings";
   el.classList.toggle("err", !!err || !!syncErr || (!ON_PAGES && !serverOk));
@@ -1362,6 +1397,7 @@ function renderSync(msg = "", ok = false) {
   syncBody.innerHTML = `
     <p>Connected to your encrypted sync gist. ${syncErr ? `<b style="color:var(--danger)">Problem: ${esc(syncErr)}</b>` :
       lastSynced ? `Last synced at <b>${new Date(lastSynced).toLocaleTimeString()}</b>.` : ""}</p>
+    ${clockOffset ? `<p><b style="color:var(--c-quiz)">${esc(clockNote())}.</b> Turn on automatic date &amp; time in this device's settings.</p>` : ""}
     <p><b>Add your phone:</b> scan this on the phone (or open the link there), then enter the same passphrase.
       Afterwards use “Add to Home screen” in the phone's browser menu.</p>
     <div id="qr"></div>
