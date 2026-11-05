@@ -423,11 +423,12 @@ const BASE_HOLIDAYS = {
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
-// Device clocks can be wrong. clockOffset corrects this one to GitHub's time (measured on each
-// sync push), and tick() never hands out a stamp below one already seen, so anything done after
+// Device clocks can be wrong. clockOffset corrects this one to real time. It's measured fresh
+// (see measureClock) and never stored, because a saved correction goes stale once the clock is fixed.
+// tick() never hands out a stamp below one already seen, so anything done after
 // seeing another device's change always wins the merge, whatever the clocks say.
 let clockOffset = 0, clockMax = 0;
-try { clockOffset = +localStorage.getItem("gate-clock-offset") || 0; } catch {}
+try { localStorage.removeItem("gate-clock-offset"); } catch {}
 const nowMs = () => Date.now() + clockOffset;
 function tick() { clockMax = Math.max(nowMs(), clockMax + 1); return clockMax; }
 const todayIso = () => iso(new Date(nowMs()));
@@ -680,9 +681,8 @@ async function syncRemote() {
     const merged = merge(data, remoteDoc);
     adopt(merged);
     if (fp(merged) !== fp(remoteDoc)) {
-      const p = await gh(`/gists/${sync.gistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      await gh(`/gists/${sync.gistId}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files: { [GIST_FILE]: { content: await encryptDoc(merged) } } }) });
-      checkClock(await p.json());
       remoteDoc = structuredClone(merged);
       remoteEtag = null;
     }
@@ -696,17 +696,28 @@ async function syncRemote() {
   }
 }
 
-// A gist we just wrote carries GitHub's clock in updated_at (to the second). Trust this
-// device's own clock unless it's more than two minutes off.
-function checkClock(g) {
-  const server = Date.parse(g?.updated_at);
-  if (!server) return;
-  const off = server - Date.now();
-  const next = Math.abs(off) > 120000 ? Math.round(off / 1000) * 1000 : 0;
-  if (next === clockOffset) return;
-  clockOffset = next;
-  try { localStorage.setItem("gate-clock-offset", String(clockOffset)); } catch {}
-  renderAll();
+// Real time comes from a Date header: on Pages from the page's own host, on the laptop through
+// server.py (browsers can't read the GitHub API's Date header). If neither answers, keep what we
+// have. Trust this device's own clock unless it's more than two minutes off.
+async function measureClock() {
+  try {
+    const signal = AbortSignal.timeout(3000);
+    let server;
+    if (ON_PAGES) {
+      const r = await fetch(`manifest.json?t=${Date.now()}`, { method: "HEAD", cache: "no-store", signal });
+      server = Date.parse(r.headers.get("Date"));
+    } else {
+      const r = await fetch("/api/time", { cache: "no-store", signal });
+      if (r.ok) server = (await r.json()).now;
+    }
+    if (!server) return;
+    const off = server - Date.now();
+    const next = Math.abs(off) > 120000 ? Math.round(off / 1000) * 1000 : 0;
+    if (next === clockOffset) return;
+    clockOffset = next;
+    if (data) renderAll();
+    setSync();
+  } catch {}
 }
 
 function clockNote() {
@@ -741,9 +752,7 @@ async function connectSync(token, pass, pass2) {
     const r = await gh("/gists", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ description: "GATE tracker sync (encrypted)", public: false,
         files: { [GIST_FILE]: { content: await encryptDoc(data, key, salt) } } }) }, token);
-    const g = await r.json();
-    checkClock(g);
-    next = { token, gistId: g.id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
+    next = { token, gistId: (await r.json()).id, salt, key: b64(await crypto.subtle.exportKey("raw", key)) };
   }
   sync = next;
   aesKey = null; remoteDoc = null; remoteEtag = null;
@@ -1353,7 +1362,7 @@ function renderAll() {
 document.getElementById("catSelect").innerHTML = CATS.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
 document.getElementById("prev").addEventListener("click", () => { if (--viewMonth < 0) { viewMonth = 11; viewYear--; } renderCalendar(); });
 document.getElementById("next").addEventListener("click", () => { if (++viewMonth > 11) { viewMonth = 0; viewYear++; } renderCalendar(); });
-document.getElementById("todayBtn").addEventListener("click", () => { const d = new Date(); viewYear = d.getFullYear(); viewMonth = d.getMonth(); renderCalendar(); });
+document.getElementById("todayBtn").addEventListener("click", () => { const d = new Date(nowMs()); viewYear = d.getFullYear(); viewMonth = d.getMonth(); renderCalendar(); });
 document.addEventListener("keydown", e => {
   if (copy && e.key === "Escape") return endCopy();
   if (dayDlg.open || setDlg.open || e.target.matches("input, textarea, select")) return;
@@ -1455,14 +1464,17 @@ setInterval(() => {
 }, 60000);
 setInterval(poll, 20000);
 setInterval(() => syncRemote(), 30000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) syncRemote(); });
+setInterval(measureClock, 300000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { measureClock(); syncRemote(); } });
 window.addEventListener("online", () => syncRemote());
 window.addEventListener("offline", () => setSync());
 window.addEventListener("beforeunload", e => { if (dirty && serverOk) { flush(); e.preventDefault(); } });
 
 (async () => {
-  const d = new Date();
+  await measureClock();   // before load(), whose rollover depends on knowing today
+  const d = new Date(nowMs());
   viewYear = d.getFullYear(); viewMonth = d.getMonth();
+  shiftFrom.value = lastDay = todayIso();
   renderLegend();
   await load();
   renderAll();
